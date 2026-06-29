@@ -2197,6 +2197,231 @@ function closeReportOverlay(){var o=document.getElementById('reportOverlay');if(
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
+
+/* =========================================================
+   EBDA EDU — FORCE SHARED VISITS PATCH
+   هذا الجزء يجبر الواجهة أن تقرأ الزيارات من Google Sheet
+   بدل localStorage، ويربط زر الزيارات المحفوظة بزيارات الفريق.
+   ========================================================= */
+(function(){
+  if (window.__EBDA_FORCE_SHARED_PATCH__) return;
+  window.__EBDA_FORCE_SHARED_PATCH__ = true;
+
+  window.SHARED_VISITS = window.SHARED_VISITS || [];
+  window.SHARED_BY_CODE = window.SHARED_BY_CODE || {};
+  window.CURRENT_SHARED_EDIT_CODE = window.CURRENT_SHARED_EDIT_CODE || '';
+
+  function sharedToast(msg){
+    try { toast(msg); }
+    catch(e){ console.log(msg); }
+  }
+
+  function sharedJsonp(action, params){
+    params = params || {};
+    return new Promise(function(resolve, reject){
+      if (!ENDPOINT) return reject(new Error('رابط Apps Script غير موجود داخل ENDPOINT'));
+
+      var cb = '__ebda_shared_cb_' + Date.now() + '_' + Math.floor(Math.random()*100000);
+      var s = document.createElement('script');
+      var done = false;
+
+      function cleanup(){
+        try { delete window[cb]; } catch(e) { window[cb] = undefined; }
+        try { if (s && s.parentNode) s.parentNode.removeChild(s); } catch(e) {}
+      }
+
+      window[cb] = function(data){
+        if (done) return;
+        done = true;
+        cleanup();
+        resolve(data || {});
+      };
+
+      var q = 'action=' + encodeURIComponent(action) + '&callback=' + encodeURIComponent(cb) + '&_t=' + Date.now();
+      Object.keys(params).forEach(function(k){
+        q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+      });
+
+      s.onerror = function(){
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(new Error('فشل الاتصال بقاعدة البيانات المشتركة'));
+      };
+
+      s.src = ENDPOINT + (ENDPOINT.indexOf('?') >= 0 ? '&' : '?') + q;
+      document.body.appendChild(s);
+
+      setTimeout(function(){
+        if (done) return;
+        done = true;
+        cleanup();
+        reject(new Error('انتهت مهلة الاتصال بقاعدة البيانات'));
+      }, 20000);
+    });
+  }
+
+  async function refreshSharedVisits(force){
+    try{
+      var res = await sharedJsonp('list', { force: force ? 1 : 0 });
+      if (!res || !res.ok) throw new Error((res && res.error) || 'تعذر قراءة الزيارات');
+
+      window.SHARED_VISITS = res.visits || [];
+      window.SHARED_BY_CODE = {};
+      window.SHARED_VISITS.forEach(function(v){
+        if (v && v.code) window.SHARED_BY_CODE[String(v.code)] = v;
+      });
+
+      try { localStorage.setItem('center_surveys_v2', JSON.stringify(window.SHARED_VISITS)); } catch(e) {}
+      markVisitedCentersShared();
+      return window.SHARED_VISITS;
+    }catch(e){
+      sharedToast('تعذر تحميل زيارات الفريق: ' + e.message);
+      return window.SHARED_VISITS || [];
+    }
+  }
+
+  // استبدال القراءة المحلية بقراءة مشتركة قدر الإمكان
+  try{
+    window.loadAll = function(){
+      if (window.SHARED_VISITS && window.SHARED_VISITS.length) return window.SHARED_VISITS;
+      try { return JSON.parse(localStorage.getItem('center_surveys_v2') || '[]'); } catch(e) { return []; }
+    };
+    // لا نحذف من الشيت من الواجهة؛ فقط نحافظ على كاش مؤقت
+    window.saveAll = function(a){
+      window.SHARED_VISITS = Array.isArray(a) ? a : (window.SHARED_VISITS || []);
+      try { localStorage.setItem('center_surveys_v2', JSON.stringify(window.SHARED_VISITS)); } catch(e) {}
+    };
+  }catch(e){}
+
+  function markVisitedCentersShared(){
+    var sel = document.getElementById('c_name');
+    if (!sel) return;
+
+    Array.from(sel.options).forEach(function(opt){
+      if (!opt.value) return;
+      if (!opt.dataset.baseLabel) opt.dataset.baseLabel = opt.textContent.replace(/ — تمت زيارتها.*$/,'');
+      var v = window.SHARED_BY_CODE[String(opt.value)];
+      if (v) {
+        opt.disabled = true;
+        opt.textContent = opt.dataset.baseLabel + ' — تمت زيارتها بواسطة ' + (v.surveyor || 'الفريق');
+      } else {
+        opt.disabled = false;
+        opt.textContent = opt.dataset.baseLabel;
+      }
+    });
+  }
+
+  function sharedRowsHtml(all){
+    return all.map(function(s){
+      return '<div style="border:1px solid #cfe3ea;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+        '<div style="text-align:right">' +
+          '<div style="font-weight:700;color:#1F5C73;font-size:15px">' + (s.name || '—') + ' ' + (s.code ? '(' + s.code + ')' : '') + '</div>' +
+          '<div style="font-size:12px;color:#666">' + (s.gov || '') + ' · تاريخ الزيارة: ' + (s.date || '—') + ' · القائم بالزيارة: ' + (s.surveyor || '—') + ' · آخر حفظ: ' + (s.savedAt || '—') + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+          '<button onclick="openSharedSurveyForce(\'' + String(s.code || '').replace(/'/g,'') + '\')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">👁️ فتح/عرض</button>' +
+          (s.folderUrl ? '<a href="' + s.folderUrl + '" target="_blank" style="background:#57B1C9;color:#fff;text-decoration:none;padding:7px 14px;border-radius:7px;font-weight:700">📁 التوثيق</a>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window.openSharedSavedListForce = async function(){
+    var all = await refreshSharedVisits(true);
+    if (!all.length) { sharedToast('لا توجد زيارات مشتركة في الشيت حتى الآن'); return; }
+
+    var html = '<style>#reportContent{font-family:Tahoma;background:#f4f7f4;padding:22px;direction:rtl}#reportContent h1{color:#1F5C73;text-align:center}</style>' +
+      '<h1>🌐 الزيارات المحفوظة للفريق (' + all.length + ')</h1>' +
+      '<p style="text-align:center;color:#555;font-size:13px">هذه القائمة مقروءة من Google Sheet، وليست من جهازك فقط.</p>' +
+      '<div style="max-width:900px;margin:0 auto">' + sharedRowsHtml(all) + '</div>';
+    showOverlay(html);
+  };
+
+  window.openSharedSurveyForce = function(code){
+    var s = window.SHARED_BY_CODE[String(code)] || (window.SHARED_VISITS || []).find(function(x){ return String(x.code) === String(code); });
+    if (!s) { sharedToast('لم يتم العثور على الزيارة في Google Sheet'); return; }
+
+    window.CURRENT_SHARED_EDIT_CODE = String(code);
+
+    var sel = document.getElementById('c_name');
+    if (sel) {
+      var opt = Array.from(sel.options).find(function(o){ return String(o.value) === String(code); });
+      if (opt) opt.disabled = false; // السماح بالفتح للعرض/التعديل من القائمة المشتركة
+      sel.value = code;
+    }
+
+    var c = (typeof CENTERS !== 'undefined' ? CENTERS : []).find(function(x){ return String(x.code) === String(code); });
+    if (c) {
+      var ccode = document.getElementById('c_code'); if (ccode) ccode.value = c.code;
+      var cgov = document.getElementById('c_gov'); if (cgov) cgov.value = c.gov;
+    }
+
+    try { restoreSurvey(s); } catch(e) {}
+    var ov = document.getElementById('reportOverlay'); if (ov) ov.remove();
+    sharedToast('تم فتح الزيارة المشتركة من Google Sheet');
+    window.scrollTo(0,0);
+  };
+
+  function forceSharedButtons(){
+    var savedBtn = document.getElementById('savedListBtn');
+    if (savedBtn && !savedBtn.dataset.sharedForced) {
+      var b = savedBtn.cloneNode(true);
+      b.id = 'savedListBtn';
+      b.dataset.sharedForced = '1';
+      b.textContent = '🗂️ الزيارات المحفوظة للفريق';
+      savedBtn.parentNode.replaceChild(b, savedBtn);
+      b.addEventListener('click', window.openSharedSavedListForce);
+    }
+
+    var sharedBtn = document.getElementById('sharedBtn');
+    if (sharedBtn && !sharedBtn.dataset.sharedForced) {
+      var s = sharedBtn.cloneNode(true);
+      s.id = 'sharedBtn';
+      s.dataset.sharedForced = '1';
+      s.textContent = '🌐 الزيارات المشتركة للفريق';
+      sharedBtn.parentNode.replaceChild(s, sharedBtn);
+      s.addEventListener('click', window.openSharedSavedListForce);
+    }
+  }
+
+  // منع حفظ مركز تمت زيارته من شاشة إدخال جديدة
+  function protectVisitedCenters(){
+    var saveBtn = document.getElementById('saveBtn');
+    if (!saveBtn || saveBtn.dataset.sharedProtected) return;
+    saveBtn.dataset.sharedProtected = '1';
+    saveBtn.addEventListener('click', function(ev){
+      var codeEl = document.getElementById('c_code');
+      var code = codeEl ? String(codeEl.value || '') : '';
+      if (!code) return;
+      var existing = window.SHARED_BY_CODE && window.SHARED_BY_CODE[code];
+      if (existing && String(window.CURRENT_SHARED_EDIT_CODE || '') !== code) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        alert('هذا المركز تمت زيارته بالفعل بواسطة: ' + (existing.surveyor || 'أحد أعضاء الفريق') + '\nافتحه من «الزيارات المحفوظة للفريق» للعرض أو التعديل، ولا تبدأ زيارة جديدة له.');
+        return false;
+      }
+    }, true);
+
+    // بعد أي حفظ، حدّث القائمة المشتركة بعد ثوانٍ
+    saveBtn.addEventListener('click', function(){
+      setTimeout(function(){ refreshSharedVisits(true); }, 5000);
+    });
+  }
+
+  function initSharedPatch(){
+    forceSharedButtons();
+    protectVisitedCenters();
+    refreshSharedVisits(true);
+    setTimeout(function(){ forceSharedButtons(); protectVisitedCenters(); refreshSharedVisits(true); }, 1500);
+    setTimeout(function(){ forceSharedButtons(); protectVisitedCenters(); refreshSharedVisits(true); }, 4000);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSharedPatch);
+  else initSharedPatch();
+  window.addEventListener('load', initSharedPatch);
+})();
+
 </script>
 </body>
 </html>
