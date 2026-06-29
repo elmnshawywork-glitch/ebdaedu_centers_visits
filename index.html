@@ -2421,6 +2421,229 @@ function closeReportOverlay(){var o=document.getElementById('reportOverlay');if(
   else initSharedPatch();
   window.addEventListener('load', initSharedPatch);
 })();
+/***************************************************************
+ * EBDA EDU — FIX: قراءة زيارات الفريق من Google Sheet عبر JSONP
+ * ضع هذا الكود في آخر index.html قبل </script>
+ * هذا الكود يلغي اعتماد زر الزيارات المحفوظة على localStorage
+ ***************************************************************/
+(function(){
+  // استخدم نفس رابط Apps Script الموجود في المتغير ENDPOINT أعلى الملف
+  function teamToast(msg){
+    if(typeof toast === 'function') toast(msg);
+    else alert(msg);
+  }
+
+  function teamOverlay(html){
+    if(typeof showOverlay === 'function') showOverlay(html);
+    else {
+      var d=document.createElement('div');
+      d.id='reportOverlay';
+      d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;overflow:auto;padding:30px;direction:rtl';
+      d.innerHTML='<div style="background:#fff;border-radius:14px;padding:20px;max-width:1100px;margin:30px auto">'+html+'</div>';
+      document.body.appendChild(d);
+    }
+  }
+
+  function closeTeamOverlay(){
+    var ov=document.getElementById('reportOverlay');
+    if(ov) ov.remove();
+  }
+
+  // Apps Script لا يسمح غالباً بقراءة fetch من GitHub بسبب CORS.
+  // لذلك نقرأ البيانات بطريقة JSONP.
+  window.ebdaTeamJsonp = function(action, params){
+    params = params || {};
+    return new Promise(function(resolve,reject){
+      if(typeof ENDPOINT === 'undefined' || !ENDPOINT){
+        reject(new Error('ENDPOINT غير موجود داخل index.html'));
+        return;
+      }
+      var cb = '__ebda_team_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      var script = document.createElement('script');
+      var timer;
+      var query = [];
+      query.push('action=' + encodeURIComponent(action || 'list'));
+      query.push('callback=' + encodeURIComponent(cb));
+      query.push('_=' + Date.now());
+      Object.keys(params).forEach(function(k){
+        query.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+      });
+
+      function cleanup(){
+        clearTimeout(timer);
+        try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
+        if(script && script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cb] = function(data){
+        cleanup();
+        resolve(data || {});
+      };
+
+      script.onerror = function(){
+        cleanup();
+        reject(new Error('فشل تحميل رابط Apps Script'));
+      };
+
+      timer = setTimeout(function(){
+        cleanup();
+        reject(new Error('انتهت مهلة الاتصال بقاعدة البيانات المشتركة'));
+      }, 20000);
+
+      script.src = ENDPOINT + (ENDPOINT.indexOf('?') >= 0 ? '&' : '?') + query.join('&');
+      document.body.appendChild(script);
+    });
+  };
+
+  window.ebdaTeamVisits = [];
+
+  window.loadTeamVisits = async function(){
+    var res = await window.ebdaTeamJsonp('list');
+    if(!res || !res.ok) throw new Error((res && res.error) || 'تعذّر قراءة زيارات الفريق');
+    window.ebdaTeamVisits = res.visits || [];
+    markVisitedCenters(window.ebdaTeamVisits);
+    return window.ebdaTeamVisits;
+  };
+
+  function markVisitedCenters(visits){
+    var sel = document.getElementById('c_name');
+    if(!sel || !Array.isArray(visits)) return;
+
+    var visited = {};
+    visits.forEach(function(v){
+      if(v && v.code) visited[String(v.code)] = v;
+    });
+
+    Array.prototype.forEach.call(sel.options, function(opt){
+      if(!opt.value) return;
+      var c = (typeof CENTERS !== 'undefined' ? CENTERS.find(function(x){return String(x.code)===String(opt.value);}) : null);
+      var base = c ? (c.name + ' — ' + c.gov) : opt.textContent.replace(/ ✅.*/, '');
+      var v = visited[String(opt.value)];
+      if(v){
+        opt.textContent = base + ' ✅ تمت زيارتها' + (v.surveyor ? (' بواسطة ' + v.surveyor) : '');
+        opt.disabled = true;
+        opt.style.color = '#777';
+      }else{
+        opt.textContent = base;
+        opt.disabled = false;
+        opt.style.color = '';
+      }
+    });
+  }
+
+  window.openTeamSavedVisits = async function(){
+    teamOverlay('<div style="padding:35px;text-align:center"><h2 style="color:#1F5C73">⏳ جارٍ تحميل زيارات الفريق من Google Sheet...</h2></div>');
+    try{
+      var visits = await window.loadTeamVisits();
+      var visitedCodes = visits.map(function(v){return String(v.code || '');}).filter(Boolean);
+      var notVisited = (typeof CENTERS !== 'undefined' ? CENTERS : []).filter(function(c){return visitedCodes.indexOf(String(c.code)) === -1;});
+
+      var rows = visits.map(function(v,i){
+        return '<tr>'+
+          '<td>'+(i+1)+'</td>'+
+          '<td style="font-weight:700;text-align:right">'+(v.name||'')+'</td>'+
+          '<td>'+(v.code||'')+'</td>'+
+          '<td>'+(v.gov||'')+'</td>'+
+          '<td>'+(v.date||'')+'</td>'+
+          '<td>'+(v.surveyor||'')+'</td>'+
+          '<td>'+(v.savedAt||'')+'</td>'+
+          '<td><button type="button" onclick="openTeamVisit(\''+(v.code||'')+'\')" style="padding:6px 12px;border:0;border-radius:7px;background:#57B1C9;color:white;cursor:pointer">فتح / تعديل</button></td>'+
+        '</tr>';
+      }).join('');
+
+      var pendingRows = notVisited.map(function(c,i){
+        return '<tr>'+
+          '<td>'+(i+1)+'</td>'+
+          '<td style="font-weight:700;text-align:right">'+c.name+'</td>'+
+          '<td>'+c.code+'</td>'+
+          '<td>'+c.gov+'</td>'+
+          '<td><button type="button" onclick="startNewTeamVisit(\''+c.code+'\')" style="padding:6px 12px;border:0;border-radius:7px;background:#1F5C73;color:white;cursor:pointer">بدء زيارة</button></td>'+
+        '</tr>';
+      }).join('');
+
+      var html = '<div style="direction:rtl;padding:20px">'+
+        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
+        '<h2 style="color:#1F5C73;margin:0">🗂️ الزيارات المحفوظة للفريق</h2>'+
+        '<button onclick="document.getElementById(\'reportOverlay\').remove()" style="border:0;background:#c0392b;color:white;border-radius:8px;padding:8px 14px;cursor:pointer">إغلاق</button>'+
+        '</div>'+
+        '<p style="color:#555">هذه البيانات مقروءة من Google Sheet المشترك، وليست من جهازك فقط.</p>'+
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px">'+
+          '<div style="background:#E8F4F8;padding:10px 16px;border-radius:10px;color:#1F5C73;font-weight:700">تمت زيارتها: '+visits.length+'</div>'+
+          '<div style="background:#fff3e8;padding:10px 16px;border-radius:10px;color:#c0392b;font-weight:700">لم تُزر بعد: '+notVisited.length+'</div>'+
+        '</div>'+
+        '<h3 style="color:#1F5C73">المراكز التي تمت زيارتها</h3>'+
+        '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px"><thead><tr style="background:#1F5C73;color:white"><th>#</th><th>المركز</th><th>الكود</th><th>المحافظة</th><th>تاريخ الزيارة</th><th>القائم بالزيارة</th><th>آخر حفظ</th><th>إجراء</th></tr></thead><tbody>'+
+        (rows || '<tr><td colspan="8" style="padding:15px;color:#c0392b">لا توجد زيارات في الشيت حتى الآن</td></tr>')+
+        '</tbody></table></div>'+
+        '<h3 style="color:#1F5C73;margin-top:22px">المراكز غير المزارة</h3>'+
+        '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px"><thead><tr style="background:#57B1C9;color:white"><th>#</th><th>المركز</th><th>الكود</th><th>المحافظة</th><th>إجراء</th></tr></thead><tbody>'+
+        (pendingRows || '<tr><td colspan="5" style="padding:15px;color:#2e7d32">كل المراكز تمت زيارتها ✅</td></tr>')+
+        '</tbody></table></div>'+
+      '</div>';
+      teamOverlay(html);
+    }catch(e){
+      teamOverlay('<div style="padding:30px;text-align:center;direction:rtl"><h2 style="color:#c0392b">تعذّر تحميل زيارات الفريق</h2><p style="color:#555">المشكلة غالباً من رابط Apps Script أو صلاحيات النشر.</p><p style="color:#c0392b">'+e.message+'</p></div>');
+    }
+  };
+
+  window.openTeamVisit = async function(code){
+    try{
+      var v = (window.ebdaTeamVisits || []).find(function(x){return String(x.code) === String(code);});
+      if(!v){
+        var res = await window.ebdaTeamJsonp('get', {code: code});
+        v = res && res.visit;
+      }
+      if(!v){ teamToast('لم يتم العثور على بيانات هذا المركز في الشيت'); return; }
+      var sel = document.getElementById('c_name');
+      if(sel) sel.value = code;
+      if(typeof restoreSurvey === 'function') restoreSurvey(v);
+      closeTeamOverlay();
+      window.scrollTo(0,0);
+      teamToast('تم فتح زيارة الفريق لهذا المركز. أي حفظ جديد سيحدّث الشيت المشترك.');
+    }catch(e){
+      teamToast('تعذّر فتح الزيارة: ' + e.message);
+    }
+  };
+
+  window.startNewTeamVisit = function(code){
+    closeTeamOverlay();
+    var sel = document.getElementById('c_name');
+    if(sel){
+      // قد يكون المركز غير معطّل لأنه غير مزور
+      sel.value = code;
+      sel.dispatchEvent(new Event('change'));
+    }
+    window.scrollTo(0,0);
+    teamToast('ابدأ تسجيل الزيارة ثم اضغط حفظ الزيارة.');
+  };
+
+  function replaceButton(id, text){
+    var old = document.getElementById(id);
+    if(!old) return null;
+    var btn = old.cloneNode(true); // لإزالة أي addEventListener قديم مثل openSavedList/localStorage
+    btn.textContent = text;
+    old.parentNode.replaceChild(btn, old);
+    return btn;
+  }
+
+  function activateTeamMode(){
+    var saved = replaceButton('savedListBtn', '🗂️ الزيارات المحفوظة للفريق');
+    if(saved) saved.addEventListener('click', window.openTeamSavedVisits);
+
+    var shared = replaceButton('sharedBtn', '🌐 الزيارات المشتركة (الفريق)');
+    if(shared) shared.addEventListener('click', window.openTeamSavedVisits);
+
+    window.loadTeamVisits()
+      .then(function(){ teamToast('تم الاتصال بقاعدة البيانات المشتركة ✔'); })
+      .catch(function(e){ teamToast('تعذّر تحميل زيارات الفريق: ' + e.message); });
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(activateTeamMode, 600); });
+  }else{
+    setTimeout(activateTeamMode, 600);
+  }
+})();
 
 </script>
 </body>
