@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>نموذج الزيارة الميدانية لمراكز التدريب المهني — EBDA EDU</title>
 <style>
   :root{
@@ -101,7 +104,7 @@ window.onerror=function(msg,src,line,col,err){
 <header>
   <div class="htxt">
     <h1>نموذج الزيارة الميدانية لمراكز التدريب المهني</h1>
-    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 10.0 ✓</span></p>
+    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 10.1 ✓</span></p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;margin-right:auto;">
     <div class="logo" onclick="clickEl('logo1Input')" title="شعار الجمهورية — اضغط للرفع" style="cursor:pointer;min-width:74px;min-height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1.5px dashed #cfe3ea;border-radius:10px;padding:4px;">
@@ -230,7 +233,8 @@ window.onerror=function(msg,src,line,col,err){
     <button type="button" class="btn-dark" id="sharedBtn">🌐 الزيارات المشتركة (الفريق)</button>
     <button type="button" class="btn-dark" id="docBtn">📁 التوثيق (الصور)</button>
     <button type="button" class="btn-ghost" id="dashBtn">لوحة التحكم</button>
-    <button type="button" class="btn-ghost" id="adminBtn" style="color:#1F5C73;border-color:#1F5C73">🔑 وضع المدير</button>
+    <button type="button" class="btn-ghost" id="refreshBtn" style="color:#2e7d32;border-color:#2e7d32">🔄 تحديث من الدرايف</button>
+    <button type="button" class="btn-ghost" id="adminBtn" style="color:#1F5C73;border-color:#1F5C73">🔑 وضع الآدمن</button>
     <button type="button" class="btn-ghost" id="clearBtn" style="color:#c0392b;border-color:#c0392b">🗑️ مسح كل البيانات</button>
   </div>
 </div>
@@ -239,7 +243,7 @@ window.onerror=function(msg,src,line,col,err){
 <div class="toast" id="toast"></div>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbzKoU7QYVWFw3sr-3LZoVg0sQSUcW9oLde4BEDCicULN5jdO4KoHbaiKHra3F9qpywy/exec"; // رابط Apps Script المركزي
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbx_mVdtxvxw1TuxQhhbGoj5FXSnecop3_euXJn_-vIw3efUlSqVlnJGpfHbqIsty3U1tQ/exec"; // رابط Apps Script المركزي
 // قراءة بيانات الفريق من الدرايف عبر JSONP (يتجاوز قيود CORS عند الاستضافة على GitHub)
 function jsonpGet(action,params){
   params=params||{};
@@ -258,24 +262,24 @@ function jsonpGet(action,params){
   });
 }
 // ====== نظام الصلاحيات (مدير / زميل) — تفعيل بزر بسيط ======
-// كلمة سر المدير (تُكتب مرة واحدة على جهاز المدير عبر زر «وضع المدير»)
+// كلمة سر الآدمن (تُكتب مرة واحدة على جهاز المدير عبر زر «وضع الآدمن»)
 const ADMIN_SECRET = "ebda2026";
 function isAdmin(){
   try{ return localStorage.getItem('ebda_is_admin')==='1'; }catch(e){ return false; }
 }
 function toggleAdmin(){
   if(isAdmin()){
-    if(confirm('أنت في وضع المدير. هل تريد الخروج منه (العودة لوضع زميل)؟')){
+    if(confirm('أنت في وضع الآدمن. هل تريد الخروج منه (العودة لوضع زميل)؟')){
       try{localStorage.removeItem('ebda_is_admin');}catch(e){}
-      toast('تم الخروج من وضع المدير');
+      toast('تم الخروج من وضع الآدمن');
       setTimeout(function(){location.reload();},800);
     }
     return;
   }
-  var p=prompt('أدخل كلمة سر المدير لتفعيل صلاحياتك على هذا الجهاز:')||'';
+  var p=prompt('أدخل كلمة سر الآدمن لتفعيل صلاحياتك على هذا الجهاز:')||'';
   if(p.trim()===ADMIN_SECRET){
     try{localStorage.setItem('ebda_is_admin','1');}catch(e){}
-    toast('✔ تم تفعيل وضع المدير على هذا الجهاز');
+    toast('✔ تم تفعيل وضع الآدمن على هذا الجهاز');
     setTimeout(function(){location.reload();},800);
   }else if(p.trim()!==''){
     toast('كلمة السر غير صحيحة');
@@ -945,12 +949,12 @@ function loadLogos(){
     }).catch(function(){});
   }
 }
-document.getElementById('logo1Input').addEventListener('change',function(){if(!isAdmin()){toast('الشعارات يحدّدها المدير فقط');return;}const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{applyLogo(1,r.result);saveLogos();toast('تم حفظ الشعار للجميع');};r.readAsDataURL(f);});
-document.getElementById('logo2Input').addEventListener('change',function(){if(!isAdmin()){toast('الشعارات يحدّدها المدير فقط');return;}const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{applyLogo(2,r.result);saveLogos();toast('تم حفظ الشعار للجميع');};r.readAsDataURL(f);});
+document.getElementById('logo1Input').addEventListener('change',function(){if(!isAdmin()){toast('الشعارات يحدّدها الآدمن فقط');return;}const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{applyLogo(1,r.result);saveLogos();toast('تم حفظ الشعار للجميع');};r.readAsDataURL(f);});
+document.getElementById('logo2Input').addEventListener('change',function(){if(!isAdmin()){toast('الشعارات يحدّدها الآدمن فقط');return;}const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{applyLogo(2,r.result);saveLogos();toast('تم حفظ الشعار للجميع');};r.readAsDataURL(f);});
 loadLogos();
 // منع الزملاء من رفع الشعار (تعطيل النقر على الشعار)
 if(!isAdmin()){
-  ['logo1','logo2'].forEach(function(id){var el=document.querySelector('.logo[onclick*="'+id+'Input"]');if(el){el.onclick=function(){toast('الشعارات يحدّدها المدير فقط');};el.style.cursor='default';}});
+  ['logo1','logo2'].forEach(function(id){var el=document.querySelector('.logo[onclick*="'+id+'Input"]');if(el){el.onclick=function(){toast('الشعارات يحدّدها الآدمن فقط');};el.style.cursor='default';}});
 }
 document.getElementById('c_name').addEventListener('change',function(){
   const c=CENTERS.find(x=>x.code===this.value);if(!c)return;
@@ -958,13 +962,16 @@ document.getElementById('c_name').addEventListener('change',function(){
   document.getElementById('c_gov').value=c.gov;
   if(!document.getElementById('c_addr').value) document.getElementById('c_addr').value=c.addr;
   updateProgress();
-  // استرجاع بيانات محفوظة لهذا المركز إن وُجدت
-  try{
-    const saved=loadAll().find(x=>x.code===c.code);
-    if(saved&&confirm('توجد زيارة محفوظة لهذا المركز بتاريخ '+(saved.date||'')+'.\nهل تريد فتحه لمتابعة/تعديل البيانات؟')){
-      restoreSurvey(saved);
+  // تحقّق إن كانت هناك زيارة محفوظة لهذا المركز (محلياً أو على الدرايف) واعرض أحدث نسخة
+  (async function(){
+    let exists=loadAll().find(x=>x.code===c.code);
+    if(!exists&&ENDPOINT){
+      try{const d=await jsonpGet('get',{code:c.code});if(d&&d.ok&&d.visit)exists=d.visit;}catch(e){}
     }
-  }catch(e){}
+    if(exists&&confirm('توجد زيارة محفوظة لهذا المركز بتاريخ '+(exists.date||'')+'.\nهل تريد فتح أحدث نسخة لمتابعة/تعديل البيانات؟')){
+      openSavedSurvey(c.code);
+    }
+  })();
 });
 // ===== استرجاع زيارة محفوظة وإعادة بناء النموذج =====
 function restoreSurvey(d){
@@ -974,7 +981,7 @@ function restoreSurvey(d){
     onGpsInput();
     // العاملون
     const people=document.getElementById('people');if(people)people.innerHTML='';
-    (d.staff&&d.staff.people||[]).forEach(p=>{addPerson();const rows=document.querySelectorAll('#people .person-row');const r=rows[rows.length-1];if(r){const set=(cls,v)=>{const e=r.querySelector(cls);if(e&&v!=null)e.value=v;};set('.p-name',p.name);set('.p-cat',p.cat);set('.p-job',p.job);set('.p-qual',p.qual);set('.p-mobile',p.mobile);set('.p-email',p.email);}});
+    (d.staff&&d.staff.people||[]).forEach(p=>{addPerson();const rows=document.querySelectorAll('#people .person-row');const r=rows[rows.length-1];if(r){const set=(cls,v)=>{const e=r.querySelector(cls);if(e&&v!=null)e.value=v;};set('.p-name',p.name);set('.p-cat',p.cat);set('.p-job',p.job);set('.p-qual',p.qual);set('.p-mobile',p.mobile);set('.p-email',p.email);set('.p-pnotes',p.pnotes);}});
     staffTotal();
     // المباني والمكوّنات
     const blds=document.getElementById('buildings');if(blds)blds.innerHTML='';bldCount=0;
@@ -1054,6 +1061,7 @@ function addPerson(){
     <input placeholder="المؤهل" style="flex:1;min-width:90px" class="p-qual">
     <input placeholder="رقم الموبيل" style="flex:1;min-width:110px" class="p-mobile" type="tel" inputmode="tel">
     <input placeholder="البريد الإلكتروني" style="flex:1;min-width:130px" class="p-email" type="email">
+    <input placeholder="ملاحظات" style="flex:1;min-width:110px" class="p-pnotes">
     <button type="button" class="del" onclick="removePersonRow('${id}')">✕</button>`;
   document.getElementById('people').appendChild(div);
 }
@@ -1286,7 +1294,7 @@ if(scoreEl){scoreEl.addEventListener('input',function(){
 function collect(){
   const g=id=>{const e=document.getElementById(id);return e?e.value.trim():'';};
   const people=[];
-  document.querySelectorAll('#people .person-row').forEach(p=>{const nm=p.querySelector('.p-name').value.trim();if(nm)people.push({name:nm,cat:p.querySelector('.p-cat').value,job:p.querySelector('.p-job').value.trim(),qual:p.querySelector('.p-qual').value.trim(),mobile:(p.querySelector('.p-mobile')||{}).value?p.querySelector('.p-mobile').value.trim():'',email:(p.querySelector('.p-email')||{}).value?p.querySelector('.p-email').value.trim():''});});
+  document.querySelectorAll('#people .person-row').forEach(p=>{const nm=p.querySelector('.p-name').value.trim();if(nm)people.push({name:nm,cat:p.querySelector('.p-cat').value,job:p.querySelector('.p-job').value.trim(),qual:p.querySelector('.p-qual').value.trim(),mobile:(p.querySelector('.p-mobile')||{}).value?p.querySelector('.p-mobile').value.trim():'',email:(p.querySelector('.p-email')||{}).value?p.querySelector('.p-email').value.trim():'',pnotes:(p.querySelector('.p-pnotes')||{}).value?p.querySelector('.p-pnotes').value.trim():''});});
   let admin=0,train=0,serv=0;people.forEach(p=>{if(p.cat==='إدارة')admin++;else if(p.cat==='تدريب')train++;else serv++;});
   const buildings=[];const facilities=[];const workshops=[];
   function collectFac(f){
@@ -1394,7 +1402,7 @@ async function openSavedList(){
     const folderBtn=s.folder?`<a href="${s.folder}" target="_blank" style="background:#2C7A94;color:#fff;border:none;padding:7px 12px;border-radius:7px;cursor:pointer;text-decoration:none;font-size:13px">📁 التوثيق</a>`:'';
     // المدير يعدّل/يحذف الكل؛ الزميل يعدّل/يحذف زياراته فقط (وهي المعروضة له أصلاً)
     const editBtn=`<button onclick="openSavedSurvey('${s.code}')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">✏️ فتح/تعديل</button>`;
-    // الحذف متاح للمدير (كل الزيارات) وللزميل (زياراته المعروضة فقط)
+    // الحذف متاح للآدمن (كل الزيارات) وللزميل (زياراته المعروضة فقط)
     const delBtn=`<button onclick="deleteSavedSurvey('${s.code}')" style="background:#fdecea;color:#c0392b;border:1px solid #c0392b;padding:7px 12px;border-radius:7px;cursor:pointer;font-weight:700">🗑️ حذف</button>`;
     return `<div style="border:1px solid #cfe3ea;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div style="text-align:right">
@@ -1408,7 +1416,7 @@ async function openSavedList(){
       </div>
     </div>`;
   }).join('');
-  const roleBadge=admin?'<span style="background:#1F5C73;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👑 مدير — كل الزيارات</span>':'<span style="background:#3D8FA8;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👤 زياراتك فقط ('+myName+')</span>';
+  const roleBadge=admin?'<span style="background:#1F5C73;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👑 آدمن — كل الزيارات</span>':'<span style="background:#3D8FA8;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👤 زياراتك فقط ('+myName+')</span>';
   const html=`<style>#reportContent{font-family:Tahoma;background:#f4f7f4;padding:22px;direction:rtl}#reportContent h1{color:#1F5C73;text-align:center}</style>
     <h1>🗂️ الزيارات المحفوظة (${all.length})</h1>
     <p style="text-align:center;font-size:13px">${roleBadge}${teamError?' · <span style="color:#c0392b">تعذّر تحميل بعض البيانات</span>':''}</p>
@@ -1416,15 +1424,17 @@ async function openSavedList(){
   showOverlay(html);
 }
 async function openSavedSurvey(code){
-  let s=loadAll().find(x=>x.code===code);
-  // إن لم تكن محليّة، اجلبها من الدرايف المركزي
-  if(!s&&ENDPOINT){
-    toast('جارٍ تحميل الزيارة من الدرايف...');
+  let s=null;
+  // اقرأ دائماً أحدث نسخة من الدرايف أولاً (لتفادي عرض نسخة قديمة مخزّنة بالجهاز)
+  if(ENDPOINT){
+    toast('جارٍ تحميل أحدث نسخة من الدرايف...');
     try{
       const data=await jsonpGet('get',{code:code});
       if(data.ok&&data.visit)s=data.visit;
-    }catch(e){toast('تعذّر تحميل الزيارة');return;}
+    }catch(e){}
   }
+  // إن تعذّر الاتصال، استخدم النسخة المحلية كحل احتياطي
+  if(!s)s=loadAll().find(x=>x.code===code);
   if(!s){toast('تعذّر العثور على الزيارة');return;}
   const sel=document.getElementById('c_name');if(sel){sel.value=code;}
   const c=CENTERS.find(x=>x.code===code);
@@ -1432,7 +1442,7 @@ async function openSavedSurvey(code){
   if(s.photos){for(const k in photoStore)delete photoStore[k];Object.assign(photoStore,s.photos);}
   restoreSurvey(s);
   const ov=document.getElementById('reportOverlay');if(ov)ov.remove();
-  toast('تم فتح الزيارة — عدّل ثم احفظ مجدداً');
+  toast('تم فتح أحدث نسخة — عدّل ثم احفظ مجدداً');
   window.scrollTo(0,0);
 }
 function deleteSavedSurvey(code){
@@ -1559,8 +1569,8 @@ async function openSchedule(){
   }).join('');
   const adminSaveBtn=admin?`<button onclick="saveScheduleCentral()" style="background:#2e7d32;color:#fff;border:none;padding:8px 16px;border-radius:7px;cursor:pointer;font-size:13px;margin:2px;font-weight:700">💾 حفظ الجدول للجميع</button>`:'';
   const roleNote=admin
-    ? '<span style="background:#1F5C73;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👑 وضع المدير — يمكنك تعديل الجدول وحفظه للجميع</span>'
-    : '<span style="background:#3D8FA8;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👁️ عرض فقط — الجدول يحدّده المدير</span>';
+    ? '<span style="background:#1F5C73;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👑 وضع الآدمن — يمكنك تعديل الجدول وحفظه للجميع</span>'
+    : '<span style="background:#3D8FA8;color:#fff;padding:2px 10px;border-radius:8px;font-size:12px">👁️ عرض فقط — الجدول يحدّده الآدمن</span>';
   const html=`<style>
     #reportContent{font-family:Tahoma,Arial;background:#f4f7f4;padding:18px;direction:rtl;color:#1a1a1a}
     #reportContent h1{color:#1F5C73;text-align:center;margin-bottom:4px}
@@ -1594,7 +1604,7 @@ async function openSchedule(){
 }
 // المدير: حفظ الجدول مركزياً ليراه الجميع
 function saveScheduleCentral(){
-  if(!isAdmin()){toast('متاح للمدير فقط');return;}
+  if(!isAdmin()){toast('متاح للآدمن فقط');return;}
   if(!ENDPOINT){toast('الربط بالدرايف غير مفعّل');return;}
   const sched=loadSched();
   try{
@@ -1762,13 +1772,29 @@ document.getElementById('previewBtn').addEventListener('click',()=>{if(validate(
 document.getElementById('docBtn').addEventListener('click',openDocumentation);
 document.getElementById('needsBtn').addEventListener('click',()=>{if(validate())renderNeedsReport(collect());});
 document.getElementById('dashBtn').addEventListener('click',openDashboard);
-// زر وضع المدير
+// زر تحديث من الدرايف — يمسح النسخة المخزّنة بالجهاز ويعيد التحميل بأحدث البيانات
+(function(){
+  var rb=document.getElementById('refreshBtn');
+  if(rb)rb.addEventListener('click',function(){
+    if(!confirm('سيتم جلب أحدث البيانات من الدرايف (الزيارات والجدول والشعارات) وتجاهل النسخة المخزّنة على الجهاز.\nمتابعة؟'))return;
+    try{
+      // امسح النسخ المحلية المخزّنة (تبقى هوية المستخدم ووضع الآدمن)
+      localStorage.removeItem(STORE);        // الزيارات
+      localStorage.removeItem(SCHED_STORE);  // الجدول
+      localStorage.removeItem(LOGO_STORE);   // الشعارات
+    }catch(e){}
+    toast('جارٍ التحديث من الدرايف...');
+    // أعد تحميل الصفحة بمعامل لكسر أي تخزين مؤقت
+    setTimeout(function(){location.reload(true);},600);
+  });
+})();
+// زر وضع الآدمن
 (function(){
   var ab=document.getElementById('adminBtn');
   if(ab){
     function refresh(){
-      if(isAdmin()){ab.textContent='👑 مدير (اضغط للخروج)';ab.style.background='#1F5C73';ab.style.color='#fff';}
-      else{ab.textContent='🔑 وضع المدير';ab.style.background='';ab.style.color='#1F5C73';}
+      if(isAdmin()){ab.textContent='👑 آدمن (اضغط للخروج)';ab.style.background='#1F5C73';ab.style.color='#fff';}
+      else{ab.textContent='🔑 وضع الآدمن';ab.style.background='';ab.style.color='#1F5C73';}
     }
     ab.addEventListener('click',toggleAdmin);
     refresh();
@@ -1934,7 +1960,7 @@ function renderReport(d){
   // counts by facility type
   const typeCount={};(d.facilities||[]).forEach(f=>{const t=f.type||'غير محدد';typeCount[t]=(typeCount[t]||0)+1;});
 
-  const ppl=(s.people||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="text-align:right;padding:5px 8px">${p.name}</td><td>${p.cat}</td><td>${p.job||'—'}</td><td>${p.qual||'—'}</td><td>${p.mobile||'—'}</td><td>${p.email||'—'}</td></tr>`).join('');
+  const ppl=(s.people||[]).map((p,i)=>`<tr><td>${i+1}</td><td style="text-align:right;padding:5px 8px">${p.name}</td><td>${p.cat}</td><td>${p.job||'—'}</td><td>${p.qual||'—'}</td><td>${p.mobile||'—'}</td><td>${p.email||'—'}</td><td style="text-align:right">${p.pnotes||'—'}</td></tr>`).join('');
   const specRows=Object.entries(specAgg).map(([sp,o])=>{const pct=o.h?Math.round(o.w/o.h*100):0;return `<tr><td style="text-align:right;font-weight:600">${sp}</td><td>${o.h}</td><td style="color:#2e7d32">${o.w}</td><td style="color:#e67e22">${o.b}</td><td style="color:#c0392b;font-weight:700">${o.n}</td><td>${pct}%</td></tr>`;}).join('');
   const specBarsData=Object.entries(specAgg).filter(([s,o])=>o.n>0).sort((a,b)=>b[1].n-a[1].n).slice(0,8).map(([s,o])=>({label:s,value:o.n,color:'#c0392b'}));
   // ===== needs/shortfall list =====
@@ -2069,7 +2095,7 @@ function renderReport(d){
       <!-- ===== DETAILS: STAFF ===== -->
       <h2>أولاً: تقرير العاملين</h2>
       <table><thead><tr><th>الإجمالي</th><th>إدارة</th><th>تدريب (مدرّبون)</th><th>خدمات معاونة</th></tr></thead><tbody><tr><td style="font-weight:700">${s.total}</td><td>${s.admin}</td><td>${s.train}</td><td>${s.serv}</td></tr></tbody></table>
-      ${ppl?`<h3>بيانات الأفراد</h3><table><thead><tr><th>#</th><th>الاسم</th><th>الفئة</th><th>الوظيفة</th><th>المؤهل</th><th>الموبيل</th><th>البريد</th></tr></thead><tbody>${ppl}</tbody></table>`:'<p style="color:#777">لم تُسجّل بيانات تفصيلية للأفراد.</p>'}
+      ${ppl?`<h3>بيانات الأفراد</h3><table><thead><tr><th>#</th><th>الاسم</th><th>الفئة</th><th>الوظيفة</th><th>المؤهل</th><th>الموبيل</th><th>البريد</th><th>ملاحظات</th></tr></thead><tbody>${ppl}</tbody></table>`:'<p style="color:#777">لم تُسجّل بيانات تفصيلية للأفراد.</p>'}
 
       <!-- ===== DETAILS: BUILDINGS ===== -->
       <h2>ثانياً: تقرير المباني والمرافق</h2>
