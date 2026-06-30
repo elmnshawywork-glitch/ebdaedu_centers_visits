@@ -99,7 +99,7 @@ window.onerror=function(msg,src,line,col,err){
 <header>
   <div class="htxt">
     <h1>نموذج الزيارة الميدانية لمراكز التدريب المهني</h1>
-    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 9.0 ✓</span></p>
+    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 9.1 ✓</span></p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;margin-right:auto;">
     <div class="logo" onclick="clickEl('logo1Input')" title="شعار الجمهورية — اضغط للرفع" style="cursor:pointer;min-width:74px;min-height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1.5px dashed #cfe3ea;border-radius:10px;padding:4px;">
@@ -236,7 +236,7 @@ window.onerror=function(msg,src,line,col,err){
 <div class="toast" id="toast"></div>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbwdfcNUi-6P-7RM8Pn5Cmk9FToa8MbCkj436iI7jg2RK8pYhMdDhTzdU2f-BI1142w/exec"; // رابط Apps Script المركزي
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbwEUZaSGcKqAXV0b1cnnLFTdQ0CtnxScwUic1bpPcz2ltSB_dD4wpQC_LyEK6_m0mT_/exec"; // رابط Apps Script المركزي
 // قراءة بيانات الفريق من الدرايف عبر JSONP (يتجاوز قيود CORS عند الاستضافة على GitHub)
 function jsonpGet(action,params){
   params=params||{};
@@ -1377,6 +1377,8 @@ async function openSavedList(){
     const folderBtn=s.folder?`<a href="${s.folder}" target="_blank" style="background:#2C7A94;color:#fff;border:none;padding:7px 12px;border-radius:7px;cursor:pointer;text-decoration:none;font-size:13px">📁 التوثيق</a>`:'';
     // المدير يعدّل الكل؛ الزميل يعدّل زياراته فقط (وهي المعروضة له أصلاً)
     const editBtn=`<button onclick="openSavedSurvey('${s.code}')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">✏️ فتح/تعديل</button>`;
+    // المدير وحده يستطيع الحذف المركزي
+    const delBtn=admin?`<button onclick="deleteSavedSurvey('${s.code}')" style="background:#fdecea;color:#c0392b;border:1px solid #c0392b;padding:7px 12px;border-radius:7px;cursor:pointer;font-weight:700">🗑️ حذف</button>`:'';
     return `<div style="border:1px solid #cfe3ea;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div style="text-align:right">
         <div style="font-weight:700;color:#1F5C73;font-size:15px">${s.name||'—'} ${s.code?`(${s.code})`:''} ${srcBadge}</div>
@@ -1385,6 +1387,7 @@ async function openSavedList(){
       <div style="display:flex;gap:6px">
         ${folderBtn}
         ${editBtn}
+        ${delBtn}
       </div>
     </div>`;
   }).join('');
@@ -1416,9 +1419,20 @@ async function openSavedSurvey(code){
   window.scrollTo(0,0);
 }
 function deleteSavedSurvey(code){
-  if(!confirm('حذف هذه الزيارة نهائياً؟'))return;
+  if(!isAdmin()){toast('الحذف متاح للمدير فقط');return;}
+  if(!confirm('حذف هذه الزيارة نهائياً من السجل المركزي (وكل صورها وتوثيقها)؟\nلا يمكن التراجع.'))return;
+  // احذف محلياً
   const all=loadAll().filter(x=>x.code!==code);saveAll(all);
-  openSavedList();toast('تم الحذف');
+  // احذف مركزياً من الدرايف
+  if(ENDPOINT){
+    try{
+      fetch(ENDPOINT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({__type:'delete',code:code})});
+      toast('✔ تم الحذف من السجل المركزي');
+    }catch(e){toast('حُذف محلياً — تعذّر الحذف المركزي');}
+  }else{toast('تم الحذف');}
+  // أعد فتح القائمة بعد لحظة (ليأخذ الدرايف وقته)
+  setTimeout(openSavedList,1500);
 }
 document.getElementById('savedListBtn').addEventListener('click',openSavedList);
 
