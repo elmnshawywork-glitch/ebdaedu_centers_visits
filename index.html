@@ -99,7 +99,7 @@ window.onerror=function(msg,src,line,col,err){
 <header>
   <div class="htxt">
     <h1>نموذج الزيارة الميدانية لمراكز التدريب المهني</h1>
-    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 6.0 ✓</span></p>
+    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 8.0 ✓</span></p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;margin-right:auto;">
     <div class="logo" onclick="clickEl('logo1Input')" title="شعار الجمهورية — اضغط للرفع" style="cursor:pointer;min-width:74px;min-height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1.5px dashed #cfe3ea;border-radius:10px;padding:4px;">
@@ -236,7 +236,24 @@ window.onerror=function(msg,src,line,col,err){
 <div class="toast" id="toast"></div>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbz9GFvZIhMMHzIYPEeGZO2RMJu-4qzvx4aaJPyk5-JnJgS0ag9YMPF903rCBu_mihvw/exec"; // ⬅️ ضع هنا رابط Apps Script بعد النشر (بين علامتي التنصيص)، مثال:
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbzDGRLz-H1ZT8amdpli5mlnMztyw9Kel8LEwtU6qlPo6mtKUiN9_XagQSzEXdhv47_N/exec"; // رابط Apps Script المركزي
+// قراءة بيانات الفريق من الدرايف عبر JSONP (يتجاوز قيود CORS عند الاستضافة على GitHub)
+function jsonpGet(action,params){
+  params=params||{};
+  return new Promise(function(resolve,reject){
+    if(!ENDPOINT){reject(new Error('ENDPOINT فارغ'));return;}
+    var cb='__ebda_cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+    var s=document.createElement('script');var done=false;
+    function cleanup(){try{delete window[cb];}catch(e){window[cb]=undefined;}if(s&&s.parentNode)s.parentNode.removeChild(s);}
+    window[cb]=function(data){if(done)return;done=true;cleanup();resolve(data||{});};
+    s.onerror=function(){if(done)return;done=true;cleanup();reject(new Error('فشل الاتصال بـ Apps Script'));};
+    var q='action='+encodeURIComponent(action)+'&callback='+encodeURIComponent(cb)+'&_t='+Date.now();
+    Object.keys(params).forEach(function(k){q+='&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);});
+    s.src=ENDPOINT+(ENDPOINT.indexOf('?')>=0?'&':'?')+q;
+    document.body.appendChild(s);
+    setTimeout(function(){if(done)return;done=true;cleanup();reject(new Error('انتهت مهلة الاتصال'));},20000);
+  });
+}
 const EQDB = {
 "تفصيل وخياطة": [
 "ماكينة خياطة مستقيم",
@@ -1260,48 +1277,70 @@ document.getElementById('saveBtn').addEventListener('click',async()=>{
     toast('جارٍ رفع الزيارة والصور للدرايف...');
     const payload=Object.assign({},data,{photos:photoStore});
     try{
-await fetch(ENDPOINT, {
-  method: 'POST',
-  mode: 'no-cors',
-  headers: {
-    'Content-Type': 'text/plain;charset=utf-8'
-  },
-  body: JSON.stringify(payload)
-});      toast('✔ تم حفظ الزيارة ورفع الصور للدرايف');
+      await fetch(ENDPOINT,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+      toast('✔ تم حفظ الزيارة ورفع الصور للدرايف');
     }catch(e){toast('حُفظ محلياً — تعذّر الرفع للدرايف (راجع الرابط)');}
   }
 });
 
 // ====== قائمة الزيارات المحفوظة ======
-function openSavedList(){
-  const all=loadAll();
-  if(!all.length){toast('لا توجد زيارات محفوظة بعد');return;}
+async function openSavedList(){
+  const local=loadAll();
+  // اجلب زيارات الفريق من الدرايف المركزي (إن كان الرابط مفعّلاً)
+  let team=[];let teamError='';
+  if(ENDPOINT){
+    showOverlay('<div style="padding:40px;text-align:center;direction:rtl"><h2 style="color:#1F5C73">⏳ جارٍ تحميل زيارات الفريق...</h2></div>');
+    try{
+      const data=await jsonpGet('list');
+      if(data.ok&&data.visits)team=data.visits;
+    }catch(e){teamError=e.message;}
+  }
+  // ادمج: المركزي أساس، والمحلي يكمّل ما لم يُرفع
+  const byCode={};
+  team.forEach(v=>{byCode[v.code]={code:v.code,name:v.name,gov:v.gov,date:v.date,surveyor:v.surveyor,notes:{score:v.score,cls:v.cls},folder:v.folder,_source:'team'};});
+  local.forEach(s=>{if(!byCode[s.code])byCode[s.code]=Object.assign({},s,{_source:'local'});});
+  const all=Object.values(byCode);
+  if(!all.length){
+    showOverlay('<div style="padding:30px;text-align:center;direction:rtl"><h2 style="color:#1F5C73">لا توجد زيارات محفوظة بعد</h2><p style="color:#555">'+(ENDPOINT?'':'⚠️ لرؤية زيارات الفريق، يجب تفعيل الربط بالدرايف (ENDPOINT).')+'</p></div>');
+    return;
+  }
   const rows=all.map((s,i)=>{
-    const photoCount=s.photos?Object.values(s.photos).reduce((a,b)=>a+(b?b.length:0),0):0;
+    const isTeam=s._source==='team';
+    const photoInfo=isTeam?'مرفوعة بالدرايف':((s.photos?Object.values(s.photos).reduce((a,b)=>a+(b?b.length:0),0):0)+' صورة');
+    const srcBadge=isTeam?'<span style="background:#e8f5e9;color:#2e7d32;padding:1px 7px;border-radius:8px;font-size:11px">👥 الفريق</span>':'<span style="background:#fff3e0;color:#e67e22;padding:1px 7px;border-radius:8px;font-size:11px">💻 جهازك (لم تُرفع)</span>';
+    const folderBtn=s.folder?`<a href="${s.folder}" target="_blank" style="background:#2C7A94;color:#fff;border:none;padding:7px 12px;border-radius:7px;cursor:pointer;text-decoration:none;font-size:13px">📁 التوثيق</a>`:'';
     return `<div style="border:1px solid #cfe3ea;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div style="text-align:right">
-        <div style="font-weight:700;color:#1F5C73;font-size:15px">${s.name||'—'} ${s.code?`(${s.code})`:''}</div>
-        <div style="font-size:12px;color:#666">${s.gov||''} · آخر حفظ: ${s.savedAt||'—'} · ${photoCount} صورة · التقييم: ${(s.notes&&s.notes.score)||'—'}%</div>
+        <div style="font-weight:700;color:#1F5C73;font-size:15px">${s.name||'—'} ${s.code?`(${s.code})`:''} ${srcBadge}</div>
+        <div style="font-size:12px;color:#666">${s.gov||''} · ${s.date||s.savedAt||'—'} · القائم: ${s.surveyor||'—'} · ${photoInfo} · التقييم: ${(s.notes&&s.notes.score)||'—'}%</div>
       </div>
       <div style="display:flex;gap:6px">
-        <button onclick="openSavedSurvey('${s.code}')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">✏️ فتح للتعديل</button>
-        <button onclick="deleteSavedSurvey('${s.code}')" style="background:#fdecea;color:#c0392b;border:1px solid #c0392b;padding:7px 12px;border-radius:7px;cursor:pointer">🗑️ حذف</button>
+        ${folderBtn}
+        <button onclick="openSavedSurvey('${s.code}')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">✏️ فتح/تعديل</button>
       </div>
     </div>`;
   }).join('');
+  const teamCount=all.filter(x=>x._source==='team').length;
   const html=`<style>#reportContent{font-family:Tahoma;background:#f4f7f4;padding:22px;direction:rtl}#reportContent h1{color:#1F5C73;text-align:center}</style>
     <h1>🗂️ الزيارات المحفوظة (${all.length})</h1>
-    <p style="text-align:center;color:#555;font-size:13px">اضغط «فتح للتعديل» لاستكمال أو تعديل أي زيارة سجّلتها سابقاً.</p>
-    <div style="max-width:760px;margin:0 auto">${rows}</div>`;
+    <p style="text-align:center;color:#555;font-size:13px">${ENDPOINT?`<b style="color:#2e7d32">${teamCount}</b> زيارة من الفريق (مشتركة للجميع)`:'⚠️ الربط بالدرايف غير مفعّل — تظهر زياراتك فقط'}${teamError?' · <span style="color:#c0392b">تعذّر تحميل بيانات الفريق</span>':''}</p>
+    <div style="max-width:820px;margin:0 auto">${rows}</div>`;
   showOverlay(html);
 }
-function openSavedSurvey(code){
-  const all=loadAll();const s=all.find(x=>x.code===code);if(!s)return;
-  // اضبط قائمة المركز ثم استرجع
+async function openSavedSurvey(code){
+  let s=loadAll().find(x=>x.code===code);
+  // إن لم تكن محليّة، اجلبها من الدرايف المركزي
+  if(!s&&ENDPOINT){
+    toast('جارٍ تحميل الزيارة من الدرايف...');
+    try{
+      const data=await jsonpGet('get',{code:code});
+      if(data.ok&&data.visit)s=data.visit;
+    }catch(e){toast('تعذّر تحميل الزيارة');return;}
+  }
+  if(!s){toast('تعذّر العثور على الزيارة');return;}
   const sel=document.getElementById('c_name');if(sel){sel.value=code;}
   const c=CENTERS.find(x=>x.code===code);
   if(c){document.getElementById('c_code').value=c.code;document.getElementById('c_gov').value=c.gov;}
-  // استرجع الصور أيضاً
   if(s.photos){for(const k in photoStore)delete photoStore[k];Object.assign(photoStore,s.photos);}
   restoreSurvey(s);
   const ov=document.getElementById('reportOverlay');if(ov)ov.remove();
@@ -1342,10 +1381,18 @@ function firstSundayOnOrAfterStart(){
   return isoDate(cur);
 }
 
-function openSchedule(){
+async function openSchedule(){
   const saved=loadAll();
   const visitedMap={};
   saved.forEach(s=>{visitedMap[s.code]={date:s.date||'',surveyor:s.surveyor||'',score:(s.notes&&s.notes.score)||'',cls:(s.notes&&s.notes.cls)||''};});
+  // ادمج زيارات الفريق من الدرايف (مركز زاره أحدهم = تمّت للجميع)
+  if(ENDPOINT){
+    showOverlay('<div style="padding:40px;text-align:center;direction:rtl"><h2 style="color:#1F5C73">⏳ جارٍ تحميل حالة الزيارات من الدرايف...</h2></div>');
+    try{
+      const data=await jsonpGet('list');
+      if(data.ok&&data.visits)data.visits.forEach(v=>{visitedMap[v.code]={date:v.date||'',surveyor:v.surveyor||'',score:v.score||'',cls:v.cls||''};});
+    }catch(e){}
+  }
   const sched=loadSched();
   // رتّب: الأولوية (C22-C33 غير المُزارة) أولاً، ثم باقي غير المُزارة، ثم المُزارة
   const list=CENTERS.map(c=>({...c,visited:!!visitedMap[c.code],info:visitedMap[c.code]||null,priority:PRIORITY_CODES.indexOf(c.code)>=0}));
@@ -1502,8 +1549,7 @@ async function openSharedVisits(){
   }
   showOverlay('<div style="padding:40px;text-align:center;direction:rtl"><h2 style="color:#1F5C73">⏳ جارٍ تحميل زيارات الفريق من الدرايف...</h2></div>');
   try{
-    const res=await fetch(ENDPOINT+'?action=list',{method:'GET'});
-    const data=await res.json();
+    const data=await jsonpGet('list');
     if(!data.ok||!data.visits){throw new Error('تعذّر القراءة');}
     const visits=data.visits;
     const visitedCodes=visits.map(v=>v.code);
@@ -2196,453 +2242,6 @@ function closeReportOverlay(){var o=document.getElementById('reportOverlay');if(
     }catch(e){}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
-})();
-
-/* =========================================================
-   EBDA EDU — FORCE SHARED VISITS PATCH
-   هذا الجزء يجبر الواجهة أن تقرأ الزيارات من Google Sheet
-   بدل localStorage، ويربط زر الزيارات المحفوظة بزيارات الفريق.
-   ========================================================= */
-(function(){
-  if (window.__EBDA_FORCE_SHARED_PATCH__) return;
-  window.__EBDA_FORCE_SHARED_PATCH__ = true;
-
-  window.SHARED_VISITS = window.SHARED_VISITS || [];
-  window.SHARED_BY_CODE = window.SHARED_BY_CODE || {};
-  window.CURRENT_SHARED_EDIT_CODE = window.CURRENT_SHARED_EDIT_CODE || '';
-
-  function sharedToast(msg){
-    try { toast(msg); }
-    catch(e){ console.log(msg); }
-  }
-
-  function sharedJsonp(action, params){
-    params = params || {};
-    return new Promise(function(resolve, reject){
-      if (!ENDPOINT) return reject(new Error('رابط Apps Script غير موجود داخل ENDPOINT'));
-
-      var cb = '__ebda_shared_cb_' + Date.now() + '_' + Math.floor(Math.random()*100000);
-      var s = document.createElement('script');
-      var done = false;
-
-      function cleanup(){
-        try { delete window[cb]; } catch(e) { window[cb] = undefined; }
-        try { if (s && s.parentNode) s.parentNode.removeChild(s); } catch(e) {}
-      }
-
-      window[cb] = function(data){
-        if (done) return;
-        done = true;
-        cleanup();
-        resolve(data || {});
-      };
-
-      var q = 'action=' + encodeURIComponent(action) + '&callback=' + encodeURIComponent(cb) + '&_t=' + Date.now();
-      Object.keys(params).forEach(function(k){
-        q += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
-      });
-
-      s.onerror = function(){
-        if (done) return;
-        done = true;
-        cleanup();
-        reject(new Error('فشل الاتصال بقاعدة البيانات المشتركة'));
-      };
-
-      s.src = ENDPOINT + (ENDPOINT.indexOf('?') >= 0 ? '&' : '?') + q;
-      document.body.appendChild(s);
-
-      setTimeout(function(){
-        if (done) return;
-        done = true;
-        cleanup();
-        reject(new Error('انتهت مهلة الاتصال بقاعدة البيانات'));
-      }, 20000);
-    });
-  }
-
-  async function refreshSharedVisits(force){
-    try{
-      var res = await sharedJsonp('list', { force: force ? 1 : 0 });
-      if (!res || !res.ok) throw new Error((res && res.error) || 'تعذر قراءة الزيارات');
-
-      window.SHARED_VISITS = res.visits || [];
-      window.SHARED_BY_CODE = {};
-      window.SHARED_VISITS.forEach(function(v){
-        if (v && v.code) window.SHARED_BY_CODE[String(v.code)] = v;
-      });
-
-      try { localStorage.setItem('center_surveys_v2', JSON.stringify(window.SHARED_VISITS)); } catch(e) {}
-      markVisitedCentersShared();
-      return window.SHARED_VISITS;
-    }catch(e){
-      sharedToast('تعذر تحميل زيارات الفريق: ' + e.message);
-      return window.SHARED_VISITS || [];
-    }
-  }
-
-  // استبدال القراءة المحلية بقراءة مشتركة قدر الإمكان
-  try{
-    window.loadAll = function(){
-      if (window.SHARED_VISITS && window.SHARED_VISITS.length) return window.SHARED_VISITS;
-      try { return JSON.parse(localStorage.getItem('center_surveys_v2') || '[]'); } catch(e) { return []; }
-    };
-    // لا نحذف من الشيت من الواجهة؛ فقط نحافظ على كاش مؤقت
-    window.saveAll = function(a){
-      window.SHARED_VISITS = Array.isArray(a) ? a : (window.SHARED_VISITS || []);
-      try { localStorage.setItem('center_surveys_v2', JSON.stringify(window.SHARED_VISITS)); } catch(e) {}
-    };
-  }catch(e){}
-
-  function markVisitedCentersShared(){
-    var sel = document.getElementById('c_name');
-    if (!sel) return;
-
-    Array.from(sel.options).forEach(function(opt){
-      if (!opt.value) return;
-      if (!opt.dataset.baseLabel) opt.dataset.baseLabel = opt.textContent.replace(/ — تمت زيارتها.*$/,'');
-      var v = window.SHARED_BY_CODE[String(opt.value)];
-      if (v) {
-        opt.disabled = true;
-        opt.textContent = opt.dataset.baseLabel + ' — تمت زيارتها بواسطة ' + (v.surveyor || 'الفريق');
-      } else {
-        opt.disabled = false;
-        opt.textContent = opt.dataset.baseLabel;
-      }
-    });
-  }
-
-  function sharedRowsHtml(all){
-    return all.map(function(s){
-      return '<div style="border:1px solid #cfe3ea;border-radius:10px;padding:12px 14px;margin:8px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
-        '<div style="text-align:right">' +
-          '<div style="font-weight:700;color:#1F5C73;font-size:15px">' + (s.name || '—') + ' ' + (s.code ? '(' + s.code + ')' : '') + '</div>' +
-          '<div style="font-size:12px;color:#666">' + (s.gov || '') + ' · تاريخ الزيارة: ' + (s.date || '—') + ' · القائم بالزيارة: ' + (s.surveyor || '—') + ' · آخر حفظ: ' + (s.savedAt || '—') + '</div>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-          '<button onclick="openSharedSurveyForce(\'' + String(s.code || '').replace(/'/g,'') + '\')" style="background:#1F5C73;color:#fff;border:none;padding:7px 14px;border-radius:7px;cursor:pointer;font-weight:700">👁️ فتح/عرض</button>' +
-          (s.folderUrl ? '<a href="' + s.folderUrl + '" target="_blank" style="background:#57B1C9;color:#fff;text-decoration:none;padding:7px 14px;border-radius:7px;font-weight:700">📁 التوثيق</a>' : '') +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }
-
-  window.openSharedSavedListForce = async function(){
-    var all = await refreshSharedVisits(true);
-    if (!all.length) { sharedToast('لا توجد زيارات مشتركة في الشيت حتى الآن'); return; }
-
-    var html = '<style>#reportContent{font-family:Tahoma;background:#f4f7f4;padding:22px;direction:rtl}#reportContent h1{color:#1F5C73;text-align:center}</style>' +
-      '<h1>🌐 الزيارات المحفوظة للفريق (' + all.length + ')</h1>' +
-      '<p style="text-align:center;color:#555;font-size:13px">هذه القائمة مقروءة من Google Sheet، وليست من جهازك فقط.</p>' +
-      '<div style="max-width:900px;margin:0 auto">' + sharedRowsHtml(all) + '</div>';
-    showOverlay(html);
-  };
-
-  window.openSharedSurveyForce = function(code){
-    var s = window.SHARED_BY_CODE[String(code)] || (window.SHARED_VISITS || []).find(function(x){ return String(x.code) === String(code); });
-    if (!s) { sharedToast('لم يتم العثور على الزيارة في Google Sheet'); return; }
-
-    window.CURRENT_SHARED_EDIT_CODE = String(code);
-
-    var sel = document.getElementById('c_name');
-    if (sel) {
-      var opt = Array.from(sel.options).find(function(o){ return String(o.value) === String(code); });
-      if (opt) opt.disabled = false; // السماح بالفتح للعرض/التعديل من القائمة المشتركة
-      sel.value = code;
-    }
-
-    var c = (typeof CENTERS !== 'undefined' ? CENTERS : []).find(function(x){ return String(x.code) === String(code); });
-    if (c) {
-      var ccode = document.getElementById('c_code'); if (ccode) ccode.value = c.code;
-      var cgov = document.getElementById('c_gov'); if (cgov) cgov.value = c.gov;
-    }
-
-    try { restoreSurvey(s); } catch(e) {}
-    var ov = document.getElementById('reportOverlay'); if (ov) ov.remove();
-    sharedToast('تم فتح الزيارة المشتركة من Google Sheet');
-    window.scrollTo(0,0);
-  };
-
-  function forceSharedButtons(){
-    var savedBtn = document.getElementById('savedListBtn');
-    if (savedBtn && !savedBtn.dataset.sharedForced) {
-      var b = savedBtn.cloneNode(true);
-      b.id = 'savedListBtn';
-      b.dataset.sharedForced = '1';
-      b.textContent = '🗂️ الزيارات المحفوظة للفريق';
-      savedBtn.parentNode.replaceChild(b, savedBtn);
-      b.addEventListener('click', window.openSharedSavedListForce);
-    }
-
-    var sharedBtn = document.getElementById('sharedBtn');
-    if (sharedBtn && !sharedBtn.dataset.sharedForced) {
-      var s = sharedBtn.cloneNode(true);
-      s.id = 'sharedBtn';
-      s.dataset.sharedForced = '1';
-      s.textContent = '🌐 الزيارات المشتركة للفريق';
-      sharedBtn.parentNode.replaceChild(s, sharedBtn);
-      s.addEventListener('click', window.openSharedSavedListForce);
-    }
-  }
-
-  // منع حفظ مركز تمت زيارته من شاشة إدخال جديدة
-  function protectVisitedCenters(){
-    var saveBtn = document.getElementById('saveBtn');
-    if (!saveBtn || saveBtn.dataset.sharedProtected) return;
-    saveBtn.dataset.sharedProtected = '1';
-    saveBtn.addEventListener('click', function(ev){
-      var codeEl = document.getElementById('c_code');
-      var code = codeEl ? String(codeEl.value || '') : '';
-      if (!code) return;
-      var existing = window.SHARED_BY_CODE && window.SHARED_BY_CODE[code];
-      if (existing && String(window.CURRENT_SHARED_EDIT_CODE || '') !== code) {
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-        alert('هذا المركز تمت زيارته بالفعل بواسطة: ' + (existing.surveyor || 'أحد أعضاء الفريق') + '\nافتحه من «الزيارات المحفوظة للفريق» للعرض أو التعديل، ولا تبدأ زيارة جديدة له.');
-        return false;
-      }
-    }, true);
-
-    // بعد أي حفظ، حدّث القائمة المشتركة بعد ثوانٍ
-    saveBtn.addEventListener('click', function(){
-      setTimeout(function(){ refreshSharedVisits(true); }, 5000);
-    });
-  }
-
-  function initSharedPatch(){
-    forceSharedButtons();
-    protectVisitedCenters();
-    refreshSharedVisits(true);
-    setTimeout(function(){ forceSharedButtons(); protectVisitedCenters(); refreshSharedVisits(true); }, 1500);
-    setTimeout(function(){ forceSharedButtons(); protectVisitedCenters(); refreshSharedVisits(true); }, 4000);
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSharedPatch);
-  else initSharedPatch();
-  window.addEventListener('load', initSharedPatch);
-})();
-/***************************************************************
- * EBDA EDU — FIX: قراءة زيارات الفريق من Google Sheet عبر JSONP
- * ضع هذا الكود في آخر index.html قبل نهاية وسم السكربت
- * هذا الكود يلغي اعتماد زر الزيارات المحفوظة على localStorage
- ***************************************************************/
-(function(){
-  // استخدم نفس رابط Apps Script الموجود في المتغير ENDPOINT أعلى الملف
-  function teamToast(msg){
-    if(typeof toast === 'function') toast(msg);
-    else alert(msg);
-  }
-
-  function teamOverlay(html){
-    if(typeof showOverlay === 'function') showOverlay(html);
-    else {
-      var d=document.createElement('div');
-      d.id='reportOverlay';
-      d.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;overflow:auto;padding:30px;direction:rtl';
-      d.innerHTML='<div style="background:#fff;border-radius:14px;padding:20px;max-width:1100px;margin:30px auto">'+html+'</div>';
-      document.body.appendChild(d);
-    }
-  }
-
-  function closeTeamOverlay(){
-    var ov=document.getElementById('reportOverlay');
-    if(ov) ov.remove();
-  }
-
-  // Apps Script لا يسمح غالباً بقراءة fetch من GitHub بسبب CORS.
-  // لذلك نقرأ البيانات بطريقة JSONP.
-  window.ebdaTeamJsonp = function(action, params){
-    params = params || {};
-    return new Promise(function(resolve,reject){
-      if(typeof ENDPOINT === 'undefined' || !ENDPOINT){
-        reject(new Error('ENDPOINT غير موجود داخل index.html'));
-        return;
-      }
-      var cb = '__ebda_team_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-      var script = document.createElement('script');
-      var timer;
-      var query = [];
-      query.push('action=' + encodeURIComponent(action || 'list'));
-      query.push('callback=' + encodeURIComponent(cb));
-      query.push('_=' + Date.now());
-      Object.keys(params).forEach(function(k){
-        query.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
-      });
-
-      function cleanup(){
-        clearTimeout(timer);
-        try{ delete window[cb]; }catch(e){ window[cb] = undefined; }
-        if(script && script.parentNode) script.parentNode.removeChild(script);
-      }
-
-      window[cb] = function(data){
-        cleanup();
-        resolve(data || {});
-      };
-
-      script.onerror = function(){
-        cleanup();
-        reject(new Error('فشل تحميل رابط Apps Script'));
-      };
-
-      timer = setTimeout(function(){
-        cleanup();
-        reject(new Error('انتهت مهلة الاتصال بقاعدة البيانات المشتركة'));
-      }, 20000);
-
-      script.src = ENDPOINT + (ENDPOINT.indexOf('?') >= 0 ? '&' : '?') + query.join('&');
-      document.body.appendChild(script);
-    });
-  };
-
-  window.ebdaTeamVisits = [];
-
-  window.loadTeamVisits = async function(){
-    var res = await window.ebdaTeamJsonp('list');
-    if(!res || !res.ok) throw new Error((res && res.error) || 'تعذّر قراءة زيارات الفريق');
-    window.ebdaTeamVisits = res.visits || [];
-    markVisitedCenters(window.ebdaTeamVisits);
-    return window.ebdaTeamVisits;
-  };
-
-  function markVisitedCenters(visits){
-    var sel = document.getElementById('c_name');
-    if(!sel || !Array.isArray(visits)) return;
-
-    var visited = {};
-    visits.forEach(function(v){
-      if(v && v.code) visited[String(v.code)] = v;
-    });
-
-    Array.prototype.forEach.call(sel.options, function(opt){
-      if(!opt.value) return;
-      var c = (typeof CENTERS !== 'undefined' ? CENTERS.find(function(x){return String(x.code)===String(opt.value);}) : null);
-      var base = c ? (c.name + ' — ' + c.gov) : opt.textContent.replace(/ ✅.*/, '');
-      var v = visited[String(opt.value)];
-      if(v){
-        opt.textContent = base + ' ✅ تمت زيارتها' + (v.surveyor ? (' بواسطة ' + v.surveyor) : '');
-        opt.disabled = true;
-        opt.style.color = '#777';
-      }else{
-        opt.textContent = base;
-        opt.disabled = false;
-        opt.style.color = '';
-      }
-    });
-  }
-
-  window.openTeamSavedVisits = async function(){
-    teamOverlay('<div style="padding:35px;text-align:center"><h2 style="color:#1F5C73">⏳ جارٍ تحميل زيارات الفريق من Google Sheet...</h2></div>');
-    try{
-      var visits = await window.loadTeamVisits();
-      var visitedCodes = visits.map(function(v){return String(v.code || '');}).filter(Boolean);
-      var notVisited = (typeof CENTERS !== 'undefined' ? CENTERS : []).filter(function(c){return visitedCodes.indexOf(String(c.code)) === -1;});
-
-      var rows = visits.map(function(v,i){
-        return '<tr>'+
-          '<td>'+(i+1)+'</td>'+
-          '<td style="font-weight:700;text-align:right">'+(v.name||'')+'</td>'+
-          '<td>'+(v.code||'')+'</td>'+
-          '<td>'+(v.gov||'')+'</td>'+
-          '<td>'+(v.date||'')+'</td>'+
-          '<td>'+(v.surveyor||'')+'</td>'+
-          '<td>'+(v.savedAt||'')+'</td>'+
-          '<td><button type="button" onclick="openTeamVisit(\''+(v.code||'')+'\')" style="padding:6px 12px;border:0;border-radius:7px;background:#57B1C9;color:white;cursor:pointer">فتح / تعديل</button></td>'+
-        '</tr>';
-      }).join('');
-
-      var pendingRows = notVisited.map(function(c,i){
-        return '<tr>'+
-          '<td>'+(i+1)+'</td>'+
-          '<td style="font-weight:700;text-align:right">'+c.name+'</td>'+
-          '<td>'+c.code+'</td>'+
-          '<td>'+c.gov+'</td>'+
-          '<td><button type="button" onclick="startNewTeamVisit(\''+c.code+'\')" style="padding:6px 12px;border:0;border-radius:7px;background:#1F5C73;color:white;cursor:pointer">بدء زيارة</button></td>'+
-        '</tr>';
-      }).join('');
-
-      var html = '<div style="direction:rtl;padding:20px">'+
-        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
-        '<h2 style="color:#1F5C73;margin:0">🗂️ الزيارات المحفوظة للفريق</h2>'+
-        '<button onclick="document.getElementById(\'reportOverlay\').remove()" style="border:0;background:#c0392b;color:white;border-radius:8px;padding:8px 14px;cursor:pointer">إغلاق</button>'+
-        '</div>'+
-        '<p style="color:#555">هذه البيانات مقروءة من Google Sheet المشترك، وليست من جهازك فقط.</p>'+
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px">'+
-          '<div style="background:#E8F4F8;padding:10px 16px;border-radius:10px;color:#1F5C73;font-weight:700">تمت زيارتها: '+visits.length+'</div>'+
-          '<div style="background:#fff3e8;padding:10px 16px;border-radius:10px;color:#c0392b;font-weight:700">لم تُزر بعد: '+notVisited.length+'</div>'+
-        '</div>'+
-        '<h3 style="color:#1F5C73">المراكز التي تمت زيارتها</h3>'+
-        '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px"><thead><tr style="background:#1F5C73;color:white"><th>#</th><th>المركز</th><th>الكود</th><th>المحافظة</th><th>تاريخ الزيارة</th><th>القائم بالزيارة</th><th>آخر حفظ</th><th>إجراء</th></tr></thead><tbody>'+
-        (rows || '<tr><td colspan="8" style="padding:15px;color:#c0392b">لا توجد زيارات في الشيت حتى الآن</td></tr>')+
-        '</tbody></table></div>'+
-        '<h3 style="color:#1F5C73;margin-top:22px">المراكز غير المزارة</h3>'+
-        '<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px"><thead><tr style="background:#57B1C9;color:white"><th>#</th><th>المركز</th><th>الكود</th><th>المحافظة</th><th>إجراء</th></tr></thead><tbody>'+
-        (pendingRows || '<tr><td colspan="5" style="padding:15px;color:#2e7d32">كل المراكز تمت زيارتها ✅</td></tr>')+
-        '</tbody></table></div>'+
-      '</div>';
-      teamOverlay(html);
-    }catch(e){
-      teamOverlay('<div style="padding:30px;text-align:center;direction:rtl"><h2 style="color:#c0392b">تعذّر تحميل زيارات الفريق</h2><p style="color:#555">المشكلة غالباً من رابط Apps Script أو صلاحيات النشر.</p><p style="color:#c0392b">'+e.message+'</p></div>');
-    }
-  };
-
-  window.openTeamVisit = async function(code){
-    try{
-      var v = (window.ebdaTeamVisits || []).find(function(x){return String(x.code) === String(code);});
-      if(!v){
-        var res = await window.ebdaTeamJsonp('get', {code: code});
-        v = res && res.visit;
-      }
-      if(!v){ teamToast('لم يتم العثور على بيانات هذا المركز في الشيت'); return; }
-      var sel = document.getElementById('c_name');
-      if(sel) sel.value = code;
-      if(typeof restoreSurvey === 'function') restoreSurvey(v);
-      closeTeamOverlay();
-      window.scrollTo(0,0);
-      teamToast('تم فتح زيارة الفريق لهذا المركز. أي حفظ جديد سيحدّث الشيت المشترك.');
-    }catch(e){
-      teamToast('تعذّر فتح الزيارة: ' + e.message);
-    }
-  };
-
-  window.startNewTeamVisit = function(code){
-    closeTeamOverlay();
-    var sel = document.getElementById('c_name');
-    if(sel){
-      // قد يكون المركز غير معطّل لأنه غير مزور
-      sel.value = code;
-      sel.dispatchEvent(new Event('change'));
-    }
-    window.scrollTo(0,0);
-    teamToast('ابدأ تسجيل الزيارة ثم اضغط حفظ الزيارة.');
-  };
-
-  function replaceButton(id, text){
-    var old = document.getElementById(id);
-    if(!old) return null;
-    var btn = old.cloneNode(true); // لإزالة أي addEventListener قديم مثل openSavedList/localStorage
-    btn.textContent = text;
-    old.parentNode.replaceChild(btn, old);
-    return btn;
-  }
-
-  function activateTeamMode(){
-    var saved = replaceButton('savedListBtn', '🗂️ الزيارات المحفوظة للفريق');
-    if(saved) saved.addEventListener('click', window.openTeamSavedVisits);
-
-    var shared = replaceButton('sharedBtn', '🌐 الزيارات المشتركة (الفريق)');
-    if(shared) shared.addEventListener('click', window.openTeamSavedVisits);
-
-    window.loadTeamVisits()
-      .then(function(){ teamToast('تم الاتصال بقاعدة البيانات المشتركة ✔'); })
-      .catch(function(e){ teamToast('تعذّر تحميل زيارات الفريق: ' + e.message); });
-  }
-
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(activateTeamMode, 600); });
-  }else{
-    setTimeout(activateTeamMode, 600);
-  }
 })();
 
 </script>
