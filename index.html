@@ -90,6 +90,8 @@
 <div id="errBox" style="display:none;position:fixed;top:0;left:0;right:0;background:#c0392b;color:#fff;padding:12px;z-index:99999;font-size:13px;direction:rtl;font-family:Tahoma;max-height:40vh;overflow:auto"></div>
 <script>
 window.onerror=function(msg,src,line,col,err){
+  // تجاهل أخطاء تحميل سكربتات خارجية (JSONP) عابرة المصدر — غير مؤثّرة
+  if(!msg || /Script error/i.test(String(msg)) || (line===0 && !src)) return false;
   var b=document.getElementById('errBox');
   if(b){b.style.display='block';b.innerHTML+='<div>⚠️ خطأ: '+msg+' (سطر '+line+')</div>';}
   return false;
@@ -99,7 +101,7 @@ window.onerror=function(msg,src,line,col,err){
 <header>
   <div class="htxt">
     <h1>نموذج الزيارة الميدانية لمراكز التدريب المهني</h1>
-    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 9.1 ✓</span></p>
+    <p>حصر دقيق وموثّق لإمكانيات كل مركز ونواقصه <span style="background:#2e7d32;color:#fff;padding:1px 8px;border-radius:6px;font-size:11px;margin-right:6px">نسخة 9.2 ✓</span></p>
   </div>
   <div style="display:flex;gap:10px;align-items:center;margin-right:auto;">
     <div class="logo" onclick="clickEl('logo1Input')" title="شعار الجمهورية — اضغط للرفع" style="cursor:pointer;min-width:74px;min-height:64px;display:flex;align-items:center;justify-content:center;background:#fff;border:1.5px dashed #cfe3ea;border-radius:10px;padding:4px;">
@@ -228,6 +230,7 @@ window.onerror=function(msg,src,line,col,err){
     <button type="button" class="btn-dark" id="sharedBtn">🌐 الزيارات المشتركة (الفريق)</button>
     <button type="button" class="btn-dark" id="docBtn">📁 التوثيق (الصور)</button>
     <button type="button" class="btn-ghost" id="dashBtn">لوحة التحكم</button>
+    <button type="button" class="btn-ghost" id="adminBtn" style="color:#1F5C73;border-color:#1F5C73">🔑 وضع المدير</button>
     <button type="button" class="btn-ghost" id="clearBtn" style="color:#c0392b;border-color:#c0392b">🗑️ مسح كل البيانات</button>
   </div>
 </div>
@@ -236,7 +239,7 @@ window.onerror=function(msg,src,line,col,err){
 <div class="toast" id="toast"></div>
 
 <script>
-const ENDPOINT = "https://script.google.com/macros/s/AKfycbwEUZaSGcKqAXV0b1cnnLFTdQ0CtnxScwUic1bpPcz2ltSB_dD4wpQC_LyEK6_m0mT_/exec"; // رابط Apps Script المركزي
+const ENDPOINT = "https://script.google.com/macros/s/AKfycbzz7NpNpo1uH0v_gO7SkMLV4LQfcBEblf0xaftGWNUk737ALyuQR31FQP1qFeedcM4e/exec"; // رابط Apps Script المركزي
 // قراءة بيانات الفريق من الدرايف عبر JSONP (يتجاوز قيود CORS عند الاستضافة على GitHub)
 function jsonpGet(action,params){
   params=params||{};
@@ -254,17 +257,29 @@ function jsonpGet(action,params){
     setTimeout(function(){if(done)return;done=true;cleanup();reject(new Error('انتهت مهلة الاتصال'));},20000);
   });
 }
-// ====== نظام الصلاحيات (مدير / زميل) ======
-// المدير = من يفتح الرابط ومعه الرمز السرّي في آخر الرابط: #admin=الرمز
-// غيّر القيمة التالية إلى رمز سرّي خاص بك (يعرفه المدير فقط)
+// ====== نظام الصلاحيات (مدير / زميل) — تفعيل بزر بسيط ======
+// كلمة سر المدير (تُكتب مرة واحدة على جهاز المدير عبر زر «وضع المدير»)
 const ADMIN_SECRET = "ebda2026";
 function isAdmin(){
-  try{
-    var h=(location.hash||'')+'&'+(location.search||'');
-    var m=h.match(/admin=([^&]+)/);
-    if(m&&decodeURIComponent(m[1])===ADMIN_SECRET){try{localStorage.setItem('ebda_is_admin','1');}catch(e){}return true;}
-    return localStorage.getItem('ebda_is_admin')==='1';
-  }catch(e){return false;}
+  try{ return localStorage.getItem('ebda_is_admin')==='1'; }catch(e){ return false; }
+}
+function toggleAdmin(){
+  if(isAdmin()){
+    if(confirm('أنت في وضع المدير. هل تريد الخروج منه (العودة لوضع زميل)؟')){
+      try{localStorage.removeItem('ebda_is_admin');}catch(e){}
+      toast('تم الخروج من وضع المدير');
+      setTimeout(function(){location.reload();},800);
+    }
+    return;
+  }
+  var p=prompt('أدخل كلمة سر المدير لتفعيل صلاحياتك على هذا الجهاز:')||'';
+  if(p.trim()===ADMIN_SECRET){
+    try{localStorage.setItem('ebda_is_admin','1');}catch(e){}
+    toast('✔ تم تفعيل وضع المدير على هذا الجهاز');
+    setTimeout(function(){location.reload();},800);
+  }else if(p.trim()!==''){
+    toast('كلمة السر غير صحيحة');
+  }
 }
 // هويّة الزميل (اسمه) — تُحفظ محلياً ليُعرف صاحب كل زيارة
 function getMyName(){try{return localStorage.getItem('ebda_my_name')||'';}catch(e){return '';}}
@@ -1746,6 +1761,18 @@ document.getElementById('previewBtn').addEventListener('click',()=>{if(validate(
 document.getElementById('docBtn').addEventListener('click',openDocumentation);
 document.getElementById('needsBtn').addEventListener('click',()=>{if(validate())renderNeedsReport(collect());});
 document.getElementById('dashBtn').addEventListener('click',openDashboard);
+// زر وضع المدير
+(function(){
+  var ab=document.getElementById('adminBtn');
+  if(ab){
+    function refresh(){
+      if(isAdmin()){ab.textContent='👑 مدير (اضغط للخروج)';ab.style.background='#1F5C73';ab.style.color='#fff';}
+      else{ab.textContent='🔑 وضع المدير';ab.style.background='';ab.style.color='#1F5C73';}
+    }
+    ab.addEventListener('click',toggleAdmin);
+    refresh();
+  }
+})();
 updateProgress();
 
 // ====== SMART REPORT PREVIEW ======
@@ -2274,7 +2301,7 @@ function closeReportOverlay(){var o=document.getElementById('reportOverlay');if(
     openSavedSurvey:openSavedSurvey,deleteSavedSurvey:deleteSavedSurvey,openSavedList:openSavedList,clearForm:clearForm,
     openSchedule:openSchedule,startVisit:startVisit,setSched:setSched,
     exportScheduleExcel:exportScheduleExcel,exportScheduleWord:exportScheduleWord,changeScheduleCenter:changeScheduleCenter,
-    saveScheduleCentral:saveScheduleCentral,openSharedVisits:openSharedVisits
+    saveScheduleCentral:saveScheduleCentral,openSharedVisits:openSharedVisits,toggleAdmin:toggleAdmin
   };
   // محلّل بسيط: يحوّل وسيطاً نصياً إلى قيمته الفعلية
   function resolveArg(arg,el,event){
